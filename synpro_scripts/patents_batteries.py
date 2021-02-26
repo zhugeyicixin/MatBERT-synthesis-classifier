@@ -1,36 +1,54 @@
+from pymongo import HASHED, ASCENDING, DESCENDING
+
 from synthesis_classifier.database.patents import PatentsDBWriter, get_connection
 from synthesis_classifier.multiprocessing_classifier import perform_collection, make_batch
 
 
 class PatentBatteryParagraphs(object):
-    def __init__(self):
+    def __init__(self, meta_col_name):
         self.db = get_connection()
+        self.meta_col_name = meta_col_name
+        db_col = self.db[self.meta_col_name]
+        db_col.create_index([('paragraph_id', ASCENDING)], unique=False)
+        db_col.create_index([('paragraph_id', HASHED)], unique=False)
+        db_col.create_index([('classification', HASHED)], unique=False)
+        db_col.create_index([('classifier_version', HASHED)], unique=False)
+        db_col.create_index([('classifier_version', ASCENDING)], unique=False)
+        db_col.create_index([('confidence', DESCENDING)], unique=False)
+
 
     def __iter__(self):
-        cursor = self.db.patent_section_battery.aggregate([
+        cursor = self.db.patent_battery.aggregate([
             {'$lookup': {
-                'from': 'patent_text_section_battery_meta',
-                'localField': 'paragraph_id',
+                'from': 'patent_text_section',
+                'localField': 'patent_id',
+                'foreignField': 'patent_id',
+                'as': 'p'}},
+            {'$unwind': '$p'},
+            {'$lookup': {
+                'from': self.meta_col_name,
+                'localField': 'p._id',
                 'foreignField': 'paragraph_id',
                 'as': 'meta'}},
             {'$match': {'meta': {'$size': 0}}},
-            {'$lookup': {
-                'from': 'patent_text_section',
-                'localField': 'paragraph_id',
-                'foreignField': '_id',
-                'as': 'p'}},
         ])
 
         for item in cursor:
-            paragraph = item['p'][0]['text']
+            paragraph = item['p']['text']
             if paragraph is not None and paragraph.strip():
-                yield item['paragraph_id'], item['p'][0]['text']
+                yield item['p']['_id'], item['p']['text']
 
     def __len__(self):
-        return next(self.db.patent_section_battery.aggregate([
+        return next(self.db.patent_battery.aggregate([
             {'$lookup': {
-                'from': 'patent_text_section_battery_meta',
-                'localField': 'paragraph_id',
+                'from': 'patent_text_section',
+                'localField': 'patent_id',
+                'foreignField': 'patent_id',
+                'as': 'p'}},
+            {'$unwind': '$p'},
+            {'$lookup': {
+                'from': self.meta_col_name,
+                'localField': 'p._id',
                 'foreignField': 'paragraph_id',
                 'as': 'meta'}},
             {'$match': {'meta': {'$size': 0}}},
@@ -40,8 +58,12 @@ class PatentBatteryParagraphs(object):
 
 if __name__ == "__main__":
     batch_size = 16
+    meta_col_name = 'paragraph_battery_fulltext_meta'
     perform_collection(
-        PatentsDBWriter(meta_col_name='patent_text_section_battery_meta'),
-        make_batch(PatentBatteryParagraphs(), batch_size),
-        './job_patents_batteries.sh'
+        PatentsDBWriter(meta_col_name=meta_col_name),
+        make_batch(
+            PatentBatteryParagraphs(meta_col_name=meta_col_name),
+            batch_size
+        ),
+        job_script=None
     )
