@@ -38,7 +38,7 @@ def create_db_index(meta_col_name):
 
 if __name__ == "__main__":
     batch_size = 16
-    meta_col_name = 'paragraph_example_fulltext_meta'
+    meta_col_name = 'paragraph_example_meta'
 
     create_db_index(meta_col_name=meta_col_name)
 
